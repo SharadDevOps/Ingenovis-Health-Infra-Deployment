@@ -49,6 +49,13 @@ variable "hub_vnet_cidr" {
   type        = string
 }
 
+variable "subnets" {
+  description = "Hub subnet configuration"
+  type = map(object({
+    cidr = string
+  }))
+}
+
 variable "tags" {
   description = "A map of tags to assign to the resource group."
   type        = map(string)

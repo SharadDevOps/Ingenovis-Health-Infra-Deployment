@@ -10,3 +10,8 @@ output "resource_group_name" {
   value = var.resource_group_name
 }
 
+output "subnet_ids" {
+  value = {
+    for name, subnet in azurerm_subnet.subnets : name => subnet.id
+  }
+}

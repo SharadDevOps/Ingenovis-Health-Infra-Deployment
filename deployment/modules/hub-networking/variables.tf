@@ -18,6 +18,13 @@ variable "location" {
   type        = string
 }
 
+variable "subnets" {
+  description = "Map of subnet name to CIDR"
+  type = map(object({
+    cidr = string
+  }))
+}
+
 variable "tags" {
   description = "A map of tags to assign to the virtual network."
   type        = map(string)

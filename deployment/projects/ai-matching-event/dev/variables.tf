@@ -23,6 +23,11 @@ variable "project" {
   type        = string
 }
 
+variable "managed_by" {
+  type = string
+  default = "Terraform"
+}
+
 variable "brand_short_name" {
   description = "The brand_short_name to assign to the resource group."
   type        = string
@@ -46,6 +51,18 @@ variable "location_short_name" {
 variable "vnet_hub_name" {
   description = "Name of Vnet Hub"
   type        = string
+}
+
+variable "spoke_vnet_cidr" {
+  type = string
+}
+
+
+variable "subnets" {
+  description = "Spoke subnet configuration"
+  type = map(object({
+    cidr = string
+  }))
 }
 
 variable "tags" {
