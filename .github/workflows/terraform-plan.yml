@@ -4,7 +4,7 @@ name: Terraform Plan
   pull_request:
     branches: [main]
     paths:
-      - 'deployment/projects/**' #path of projects
+      - 'deployment/projects/**' #path of p
 
 permissions:
   contents: read
@@ -76,7 +76,9 @@ jobs:
 
       - name: Terraform Plan
         id: plan
-        run: terraform plan -no-color -input=false -out=tfplan 2>&1 | tee plan_output.txt
+        run: |
+          set -o pipefail
+          terraform plan -no-color -input=false -out=tfplan 2>&1 | tee plan_output.txt
         working-directory: ${{ matrix.folder }}
         continue-on-error: true
 
