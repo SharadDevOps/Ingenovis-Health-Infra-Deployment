@@ -1,41 +1,52 @@
 name: PR Checks
 
-on:
+"on":
   pull_request:
     branches: [main]
-    paths:
-      - 'deployment/**'
 
 jobs:
-  # ─── Job 1: Format Check ──────────────────────────────────────
+  # ─── Always runs — detects if Terraform files changed ──────────────
+  detect:
+    name: detect
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.filter.outputs.deployment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            deployment:
+              - 'deployment/**'
+
+  # ─── Only runs when deployment/** changed ───────────────────────────
   fmt-check:
     name: fmt-check
+    needs: detect
+    if: needs.detect.outputs.run == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.9.0
-
       - name: Terraform Format Check
         run: terraform fmt -check -recursive
         working-directory: deployment
 
-  # ─── Job 2: TFLint ────────────────────────────────────────────
   tflint:
     name: tflint
+    needs: detect
+    if: needs.detect.outputs.run == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: terraform-linters/setup-tflint@v4
         with:
           tflint_version: v0.50.0
-
       - name: Init TFLint
         run: tflint --init
-
       - name: Run TFLint
         run: |
           find deployment -name "*.tf" -not -path "*/.terraform/*" \
@@ -44,13 +55,13 @@ jobs:
             tflint --chdir="$dir"
           done
 
-  # ─── Job 3: KICS Security Scan ────────────────────────────────
   kics-scan:
     name: kics-scan
+    needs: detect
+    if: needs.detect.outputs.run == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Run KICS
         uses: checkmarx/kics-github-action@v2
         with:
@@ -59,14 +70,12 @@ jobs:
           output_path: kics-results
           output_formats: json,sarif
           exclude_paths: ".terraform,**/.terraform/**"
-
       - name: Upload KICS results
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: kics-results
           path: kics-results/
-
       - name: Upload SARIF to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
         if: always()
