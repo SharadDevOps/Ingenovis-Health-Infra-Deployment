@@ -10,14 +10,14 @@ name: Terraform Apply
         options:
           - platform/hub
           - platform/shared-services
-          - ai-matching-1/dev
-          - ai-matching-1/qa
-          - ai-matching-1/preprod
-          - ai-matching-1/prod
-          - ai-matching-2/dev
-          - ai-matching-2/qa
-          - ai-matching-2/preprod
-          - ai-matching-2/prod
+          - ai-matching-event/dev
+          - ai-matching-event/qa
+          - ai-matching-event/preprod
+          - ai-matching-event/prod
+          - ai-matching-feedback/dev
+          - ai-matching-feedback/qa
+          - ai-matching-feedback/preprod
+          - ai-matching-feedback/prod
           - analytics/dev
           - analytics/qa
           - analytics/preprod
