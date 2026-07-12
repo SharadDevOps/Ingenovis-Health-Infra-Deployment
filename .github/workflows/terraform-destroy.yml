@@ -1,0 +1,183 @@
+name: Terraform Destroy
+
+"on":
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Environment to destroy (or "ALL" to destroy everything in order)'
+        required: true
+        type: choice
+        options:
+          - ALL
+          - billing/prod
+          - billing/preprod
+          - billing/qa
+          - billing/dev
+          - analytics/prod
+          - analytics/preprod
+          - analytics/qa
+          - analytics/dev
+          - ai-matching-feedback/prod
+          - ai-matching-feedback/preprod
+          - ai-matching-feedback/qa
+          - ai-matching-feedback/dev
+          - ai-matching-event/prod
+          - ai-matching-event/preprod
+          - ai-matching-event/qa
+          - ai-matching-event/dev
+          - platform/shared-services
+          - platform/hub
+      confirm:
+        description: 'Type DESTROY to confirm — this is irreversible'
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  # ─── Validate ────────────────────────────────────────────────────────────────
+  validate:
+    name: Validate Confirmation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check confirmation word
+        run: |
+          if [ "${{ inputs.confirm }}" != "DESTROY" ]; then
+            echo "Confirmation failed — you must type DESTROY exactly (case sensitive)"
+            exit 1
+          fi
+          echo "Confirmation accepted — proceeding with destroy"
+
+  # ─── Single target destroy ───────────────────────────────────────────────────
+  destroy-single:
+    name: Destroy / ${{ inputs.target }}
+    needs: validate
+    if: inputs.target != 'ALL'
+    runs-on: ubuntu-latest
+    environment: >-
+      ${{
+        contains(inputs.target, '/prod') && 'prod' ||
+        contains(inputs.target, 'preprod') && 'preprod' ||
+        'dev'
+      }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login via OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: Terraform Init
+        run: terraform init -input=false
+        working-directory: deployment/projects/${{ inputs.target }}
+
+      - name: Terraform Destroy
+        run: terraform destroy -auto-approve -input=false
+        working-directory: deployment/projects/${{ inputs.target }}
+
+  # ─── Destroy ALL — runs in correct order (spokes first, hub last) ─────────────
+  destroy-all-spokes:
+    name: Destroy All Spokes
+    needs: validate
+    if: inputs.target == 'ALL'
+    runs-on: ubuntu-latest
+    environment: dev
+    strategy:
+      max-parallel: 1           # one at a time — prevents state conflicts
+      matrix:
+        folder:
+          - billing/prod
+          - billing/preprod
+          - billing/qa
+          - billing/dev
+          - analytics/prod
+          - analytics/preprod
+          - analytics/qa
+          - analytics/dev
+          - ai-matching-feedback/prod
+          - ai-matching-feedback/preprod
+          - ai-matching-feedback/qa
+          - ai-matching-feedback/dev
+          - ai-matching-event/prod
+          - ai-matching-event/preprod
+          - ai-matching-event/qa
+          - ai-matching-event/dev
+          - platform/shared-services
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login via OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: Check if state exists
+        id: check
+        run: |
+          if [ -d "deployment/projects/${{ matrix.folder }}" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Terraform Init
+        if: steps.check.outputs.exists == 'true'
+        run: terraform init -input=false
+        working-directory: deployment/projects/${{ matrix.folder }}
+
+      - name: Terraform Destroy
+        if: steps.check.outputs.exists == 'true'
+        run: terraform destroy -auto-approve -input=false
+        working-directory: deployment/projects/${{ matrix.folder }}
+
+  # ─── Hub is always last — only runs after all spokes are destroyed ────────────
+  destroy-hub:
+    name: Destroy Hub (last)
+    needs: destroy-all-spokes
+    if: inputs.target == 'ALL'
+    runs-on: ubuntu-latest
+    environment: dev
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login via OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: Terraform Init
+        run: terraform init -input=false
+        working-directory: deployment/projects/platform/hub
+
+      - name: Terraform Destroy
+        run: terraform destroy -auto-approve -input=false
+        working-directory: deployment/projects/platform/hub
