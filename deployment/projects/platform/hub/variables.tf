@@ -45,7 +45,7 @@ variable "location_short_name" {
 }
 
 variable "hub_vnet_cidr" {
-  description = "Address space of Hub Vnet"
+  description = "Address space of Hub Vnet added"
   type        = string
 }
 
