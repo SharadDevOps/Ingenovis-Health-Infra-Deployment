@@ -1,0 +1,16 @@
+# Platform infra — senior engineer approval required
+deployment/projects/platform/        @infra-lead
+
+# AI Matching — platform team
+deployment/projects/ai-matching-1/   @platform-team
+deployment/projects/ai-matching-2/   @platform-team
+
+# Analytics and Billing
+deployment/projects/analytics/       @data-team
+deployment/projects/billing/         @billing-team
+
+# Shared modules — any module change needs infra-lead sign-off
+deployment/modules/                  @infra-lead
+
+# Workflows — infra-lead only
+.github/                             @infra-lead

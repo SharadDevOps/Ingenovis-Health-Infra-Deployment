@@ -1,0 +1,65 @@
+name: Terraform Apply
+
+on:
+  workflow_dispatch:            # manual trigger only — no auto deploy
+    inputs:
+      environment:
+        description: 'Folder to deploy (relative to deployment/projects/)'
+        required: true
+        type: choice
+        options:
+          - platform/hub
+          - platform/shared-services
+          - ai-matching-1/dev
+          - ai-matching-1/qa
+          - ai-matching-1/preprod
+          - ai-matching-1/prod
+          - ai-matching-2/dev
+          - analytics/dev
+          - billing/dev
+      confirm:
+        description: 'Type DEPLOY to confirm'
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  apply:
+    name: Apply ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}    # maps to GitHub environment for approval gates
+
+    steps:
+      - name: Validate confirmation
+        if: inputs.confirm != 'DEPLOY'
+        run: |
+          echo "Confirmation failed — type DEPLOY to proceed"
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - name: Azure Login via OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: Terraform Init
+        run: terraform init
+        working-directory: deployment/projects/${{ inputs.environment }}
+
+      - name: Terraform Plan
+        run: terraform plan -no-color -out=tfplan
+        working-directory: deployment/projects/${{ inputs.environment }}
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
+        working-directory: deployment/projects/${{ inputs.environment }}

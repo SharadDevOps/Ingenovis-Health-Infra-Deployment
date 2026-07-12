@@ -1,7 +1,4 @@
-variable "resource_group_name" {
-  description = "The name of the resource group to create."
-  type        = string
-}
+
 
 variable "location" {
   description = "The Azure region where the resource group will be created."
@@ -24,7 +21,7 @@ variable "project" {
 }
 
 variable "managed_by" {
-  type = string
+  type    = string
   default = "Terraform"
 }
 
@@ -48,15 +45,14 @@ variable "location_short_name" {
   type        = string
 }
 
-variable "vnet_hub_name" {
-  description = "Name of Vnet Hub"
-  type        = string
-}
 
 variable "spoke_vnet_cidr" {
   type = string
+  validation {
+    condition     = can(cidrhost(var.spoke_vnet_cidr, 0))
+    error_message = "spoke_vnet_cidr must be a valid CIDR block."
+  }
 }
-
 
 variable "subnets" {
   description = "Spoke subnet configuration"
@@ -65,8 +61,8 @@ variable "subnets" {
   }))
 }
 
-variable "tags" {
-  description = "A map of tags to assign to the resource group."
-  type        = map(string)
-  default     = {}
-}
+# variable "tags" {
+#   description = "A map of tags to assign to the resource group."
+#   type        = map(string)
+#   default     = {}
+# }

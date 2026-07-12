@@ -56,8 +56,8 @@ variable "subnets" {
   }))
 }
 
-variable "tags" {
-  description = "A map of tags to assign to the resource group."
-  type        = map(string)
-  default     = {}
-}
+# variable "tags" {
+#   description = "A map of tags to assign to the resource group."
+#   type        = map(string)
+#   default     = {}
+# }
