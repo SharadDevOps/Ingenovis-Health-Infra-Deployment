@@ -14,3 +14,10 @@ crash.log
 # OS files
 .DS_Store
 Thumbs.db
+
+# Already ignored — correct
+**/.terraform/*
+
+# This means .terraform/modules/ is local only
+# Every developer and the pipeline runs terraform init themselves
+# That is the correct behavior
