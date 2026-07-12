@@ -4,7 +4,7 @@ name: Terraform Plan
   pull_request:
     branches: [main]
     paths:
-      - 'deployment/projects/**' #path of p
+      - 'deployment/projects/**'
 
 permissions:
   contents: read
@@ -12,12 +12,15 @@ permissions:
   id-token: write
 
 jobs:
+  # ─── Detect what changed ────────────────────────────────────────────────────
   detect-changes:
     name: Detect Changed Folders
     runs-on: ubuntu-latest
     outputs:
-      folders: ${{ steps.changed.outputs.folders }}
-      has_changes: ${{ steps.changed.outputs.has_changes }}
+      platform_folders: ${{ steps.changed.outputs.platform_folders }}
+      spoke_folders: ${{ steps.changed.outputs.spoke_folders }}
+      has_platform_changes: ${{ steps.changed.outputs.has_platform_changes }}
+      has_spoke_changes: ${{ steps.changed.outputs.has_spoke_changes }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,31 +29,120 @@ jobs:
       - name: Find changed Terraform folders
         id: changed
         run: |
-          FOLDERS=$(git diff --name-only origin/main...HEAD \
+          ALL_CHANGED=$(git diff --name-only origin/main...HEAD \
             | grep '^deployment/projects/' \
             | grep -E '\.(tf|tfvars)$' \
             | xargs -I{} dirname {} \
-            | sort -u \
-            | jq -R -s -c 'split("\n") | map(select(length > 0))')
+            | sort -u)
 
-          echo "folders=$FOLDERS" >> $GITHUB_OUTPUT
+          echo "All changed folders:"
+          echo "$ALL_CHANGED"
 
-          if [ "$FOLDERS" = "[]" ] || [ -z "$FOLDERS" ]; then
-            echo "has_changes=false" >> $GITHUB_OUTPUT
+          # Split into platform and spoke folders
+          PLATFORM=$(echo "$ALL_CHANGED" | grep 'projects/platform' || true)
+          SPOKES=$(echo "$ALL_CHANGED" | grep -v 'projects/platform' || true)
+
+          PLATFORM_JSON=$(echo "$PLATFORM" | grep -v '^$' | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          SPOKES_JSON=$(echo "$SPOKES" | grep -v '^$' | jq -R -s -c 'split("\n") | map(select(length > 0))')
+
+          echo "platform_folders=$PLATFORM_JSON" >> $GITHUB_OUTPUT
+          echo "spoke_folders=$SPOKES_JSON" >> $GITHUB_OUTPUT
+
+          if [ "$PLATFORM_JSON" != "[]" ] && [ -n "$PLATFORM_JSON" ]; then
+            echo "has_platform_changes=true" >> $GITHUB_OUTPUT
           else
-            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "has_platform_changes=false" >> $GITHUB_OUTPUT
           fi
 
-          echo "Changed folders: $FOLDERS"
+          if [ "$SPOKES_JSON" != "[]" ] && [ -n "$SPOKES_JSON" ]; then
+            echo "has_spoke_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_spoke_changes=false" >> $GITHUB_OUTPUT
+          fi
 
-  terraform-plan:
-    name: Plan / ${{ matrix.folder }}
+          echo "Platform folders: $PLATFORM_JSON"
+          echo "Spoke folders: $SPOKES_JSON"
+
+  # ─── Platform always plans first ────────────────────────────────────────────
+  # Runs when platform changed OR when any spoke changed
+  # Spokes read hub remote state — hub must be planned first to confirm outputs exist
+  plan-platform:
+    name: Plan / platform/hub
     needs: detect-changes
-    if: needs.detect-changes.outputs.has_changes == 'true'
+    if: |
+      needs.detect-changes.outputs.has_platform_changes == 'true' ||
+      needs.detect-changes.outputs.has_spoke_changes == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login via OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: Terraform Init
+        run: terraform init -input=false
+        working-directory: deployment/projects/platform/hub
+
+      - name: Terraform Plan
+        id: plan
+        run: |
+          set -o pipefail
+          terraform plan -no-color -input=false 2>&1 | tee plan_output.txt
+        working-directory: deployment/projects/platform/hub
+        continue-on-error: true
+
+      - name: Post Plan to PR
+        uses: actions/github-script@v7
+        if: always()
+        with:
+          script: |
+            const fs = require('fs');
+            const planOutput = fs.readFileSync('deployment/projects/platform/hub/plan_output.txt', 'utf8');
+            const maxLength = 60000;
+            const truncated = planOutput.length > maxLength
+              ? planOutput.substring(0, maxLength) + '\n... (truncated)'
+              : planOutput;
+            const status = '${{ steps.plan.outcome }}' === 'success' ? 'Plan succeeded' : 'Plan FAILED';
+            const body = `### Terraform Plan: \`platform/hub\` — ${status}
+            <details><summary>Show Plan Output</summary>
+
+            \`\`\`hcl
+            ${truncated}
+            \`\`\`
+            </details>`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      - name: Fail if plan failed
+        if: steps.plan.outcome == 'failure'
+        run: exit 1
+
+  # ─── Spoke plans run AFTER platform ─────────────────────────────────────────
+  # needs: plan-platform ensures correct ordering
+  # fail-fast: false — plan all spokes even if one fails
+  plan-spokes:
+    name: Plan / ${{ matrix.folder }}
+    needs: [detect-changes, plan-platform]
+    if: needs.detect-changes.outputs.has_spoke_changes == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        folder: ${{ fromJson(needs.detect-changes.outputs.folders) }}
+        folder: ${{ fromJson(needs.detect-changes.outputs.spoke_folders) }}
       fail-fast: false
 
     steps:
@@ -70,7 +162,6 @@ jobs:
           cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
 
       - name: Terraform Init
-        id: init
         run: terraform init -input=false
         working-directory: ${{ matrix.folder }}
 
@@ -78,12 +169,13 @@ jobs:
         id: plan
         run: |
           set -o pipefail
-          terraform plan -no-color -input=false -out=tfplan 2>&1 | tee plan_output.txt
+          terraform plan -no-color -input=false 2>&1 | tee plan_output.txt
         working-directory: ${{ matrix.folder }}
         continue-on-error: true
 
       - name: Post Plan to PR
         uses: actions/github-script@v7
+        if: always()
         with:
           script: |
             const fs = require('fs');
@@ -92,9 +184,7 @@ jobs:
             const truncated = planOutput.length > maxLength
               ? planOutput.substring(0, maxLength) + '\n... (truncated)'
               : planOutput;
-
-            const status = '${{ steps.plan.outcome }}' === 'success' ? 'Plan succeeded' : 'Plan failed';
-
+            const status = '${{ steps.plan.outcome }}' === 'success' ? 'Plan succeeded' : 'Plan FAILED';
             const body = `### Terraform Plan: \`${{ matrix.folder }}\` — ${status}
             <details><summary>Show Plan Output</summary>
 
@@ -102,7 +192,6 @@ jobs:
             ${truncated}
             \`\`\`
             </details>`;
-
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
