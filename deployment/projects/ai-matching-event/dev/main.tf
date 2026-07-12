@@ -8,6 +8,7 @@ data "terraform_remote_state" "hub" {
   }
 }
 
+# Resource Group Definition
 module "resource_group" {
   source              = "../../../modules/resource-group"
   resource_group_name = local.resource_group_name

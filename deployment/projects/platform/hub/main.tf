@@ -1,3 +1,5 @@
+
+#resource Group definition
 module "resource_group" {
   source              = "../../../modules/resource-group"
   resource_group_name = local.resource_group_name
