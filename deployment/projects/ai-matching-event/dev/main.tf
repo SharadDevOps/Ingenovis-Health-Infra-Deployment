@@ -3,7 +3,7 @@ data "terraform_remote_state" "hub" {
   config = {
     organization = "SharadDevops"
     workspaces = {
-      name = "ingenovis-hub"
+      name = "Ingenovis-Platform"
     }
   }
 }

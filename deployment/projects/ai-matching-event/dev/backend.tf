@@ -1,8 +1,23 @@
 terraform {
+  required_version = ">= 1.5.0"
+
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "~> 3.100"
+    }
+  }
+
   cloud {
-    organization = "saxenasharad-org"
+    organization = "SharadDevops"
     workspaces {
-      name = "ingenovis-ai-matching-1-dev"
+      name = "Ingenovis-AI-Matching-Event-Dev"
     }
   }
 }
+
+provider "azurerm" {
+  features {}
+}
+
+
