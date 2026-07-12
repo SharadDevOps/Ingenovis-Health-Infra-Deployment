@@ -14,6 +14,7 @@ resource "azurerm_user_assigned_identity" "uami" {
 # RBAC mode — no access policies
 # Public access disabled — private endpoint only
 # Purge protection — prevents accidental permanent deletion
+# Test
 # ─────────────────────────────────────────────────────────────────────────────
 resource "azurerm_key_vault" "kv" {
   name                          = var.key_vault_name
