@@ -1,10 +1,10 @@
 name: Terraform Apply
 
-on:
-  workflow_dispatch:            # manual trigger only — no auto deploy
+"on":
+  workflow_dispatch:
     inputs:
-      environment:
-        description: 'Folder to deploy (relative to deployment/projects/)'
+      target:
+        description: 'Environment to deploy'
         required: true
         type: choice
         options:
@@ -15,8 +15,17 @@ on:
           - ai-matching-1/preprod
           - ai-matching-1/prod
           - ai-matching-2/dev
+          - ai-matching-2/qa
+          - ai-matching-2/preprod
+          - ai-matching-2/prod
           - analytics/dev
+          - analytics/qa
+          - analytics/preprod
+          - analytics/prod
           - billing/dev
+          - billing/qa
+          - billing/preprod
+          - billing/prod
       confirm:
         description: 'Type DEPLOY to confirm'
         required: true
@@ -26,18 +35,24 @@ permissions:
   contents: read
 
 jobs:
-  apply:
-    name: Apply ${{ inputs.environment }}
+  validate-input:
+    name: Validate Confirmation
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}    # maps to GitHub environment for approval gates
-
     steps:
-      - name: Validate confirmation
-        if: inputs.confirm != 'DEPLOY'
+      - name: Check confirmation
         run: |
-          echo "Confirmation failed — type DEPLOY to proceed"
-          exit 1
+          if [ "${{ inputs.confirm }}" != "DEPLOY" ]; then
+            echo "Confirmation failed — you must type DEPLOY exactly"
+            exit 1
+          fi
 
+  plan:
+    name: Plan / ${{ inputs.target }}
+    needs: validate-input
+    runs-on: ubuntu-latest
+    outputs:
+      plan_exitcode: ${{ steps.plan.outputs.exitcode }}
+    steps:
       - uses: actions/checkout@v4
 
       - name: Azure Login via OIDC
@@ -47,19 +62,73 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - uses: hashicorp/setup-terraform@v3
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.9.0
           cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
 
       - name: Terraform Init
-        run: terraform init
-        working-directory: deployment/projects/${{ inputs.environment }}
+        run: terraform init -input=false
+        working-directory: deployment/projects/${{ inputs.target }}
 
       - name: Terraform Plan
-        run: terraform plan -no-color -out=tfplan
-        working-directory: deployment/projects/${{ inputs.environment }}
+        id: plan
+        run: |
+          set -o pipefail
+          terraform plan -no-color -input=false -detailed-exitcode -out=tfplan 2>&1 | tee plan_output.txt
+          echo "exitcode=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+        working-directory: deployment/projects/${{ inputs.target }}
+
+      - name: Upload plan artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: deployment/projects/${{ inputs.target }}/tfplan
+          retention-days: 1
+
+  apply:
+    name: Apply / ${{ inputs.target }}
+    needs: plan
+    runs-on: ubuntu-latest
+    # Maps any target to one of 3 GitHub environments
+    # platform/hub        → dev
+    # ai-matching-1/dev   → dev
+    # ai-matching-1/preprod → preprod
+    # ai-matching-1/prod  → prod
+    environment: >-
+      ${{
+        contains(inputs.target, '/prod') && 'prod' ||
+        contains(inputs.target, 'preprod') && 'preprod' ||
+        'dev'
+      }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login via OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+          cli_config_credentials_token: ${{ secrets.TF_API_TOKEN }}
+
+      - name: Download plan artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+          path: deployment/projects/${{ inputs.target }}
+
+      - name: Terraform Init
+        run: terraform init -input=false
+        working-directory: deployment/projects/${{ inputs.target }}
 
       - name: Terraform Apply
-        run: terraform apply -auto-approve tfplan
-        working-directory: deployment/projects/${{ inputs.environment }}
+        run: terraform apply -auto-approve -input=false tfplan
+        working-directory: deployment/projects/${{ inputs.target }}
