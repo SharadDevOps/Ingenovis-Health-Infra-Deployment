@@ -1,4 +1,14 @@
 repos:
+  - repo: local
+    hooks:
+      - id: terraform-fmt-recursive
+        name: Terraform fmt (auto-fix all files)
+        entry: terraform
+        args: [fmt, -recursive, deployment/]
+        language: system
+        pass_filenames: false
+        always_run: true
+
   - repo: https://github.com/antonbabenko/pre-commit-terraform
     rev: v1.92.0
     hooks:
