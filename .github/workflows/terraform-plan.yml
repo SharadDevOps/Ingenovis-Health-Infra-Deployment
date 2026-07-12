@@ -4,7 +4,7 @@ name: Terraform Plan
   pull_request:
     branches: [main]
     paths:
-      - 'deployment/projects/**' #path
+      - 'deployment/projects/**' #path of projects
 
 permissions:
   contents: read
