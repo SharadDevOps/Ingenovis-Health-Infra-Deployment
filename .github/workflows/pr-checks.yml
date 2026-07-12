@@ -1,0 +1,74 @@
+name: PR Checks
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'deployment/**'
+
+jobs:
+  # ─── Job 1: Format Check ──────────────────────────────────────
+  fmt-check:
+    name: fmt-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.0
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+        working-directory: deployment
+
+  # ─── Job 2: TFLint ────────────────────────────────────────────
+  tflint:
+    name: tflint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: v0.50.0
+
+      - name: Init TFLint
+        run: tflint --init
+
+      - name: Run TFLint
+        run: |
+          find deployment -name "*.tf" -not -path "*/.terraform/*" \
+            -exec dirname {} \; | sort -u | while read dir; do
+            echo "Linting: $dir"
+            tflint --chdir="$dir"
+          done
+
+  # ─── Job 3: KICS Security Scan ────────────────────────────────
+  kics-scan:
+    name: kics-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run KICS
+        uses: checkmarx/kics-github-action@v2
+        with:
+          path: deployment
+          fail_on: high,medium
+          output_path: kics-results
+          output_formats: json,sarif
+          exclude_paths: ".terraform,**/.terraform/**"
+
+      - name: Upload KICS results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: kics-results
+          path: kics-results/
+
+      - name: Upload SARIF to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: kics-results/results.sarif
