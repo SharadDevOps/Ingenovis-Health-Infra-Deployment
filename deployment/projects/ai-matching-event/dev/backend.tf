@@ -8,6 +8,7 @@ terraform {
     }
   }
 
+  # Cloud Entry for State File
   cloud {
     organization = "SharadDevops"
     workspaces {
